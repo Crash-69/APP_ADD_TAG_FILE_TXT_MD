@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="app-token" content="__TOKEN__">
+  <title>TxtToObsidian</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/lucide.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><div class="brand"><i data-lucide="files"></i><strong>TxtToObsidian</strong></div><span id="health" role="status">Avvio applicazione...</span></header>
+  <main>
+    <header class="heading"><h1>Migra i tuoi file .txt in Obsidian</h1><span class="local"><i data-lucide="lock-keyhole"></i> Sessione locale</span></header>
+    <form id="conversion-form">
+      <div class="uploads">
+        <section><h2>01 <span>Indice sorgente</span></h2><label class="dropzone" id="markdown-zone" for="markdown"><i data-lucide="file-text"></i><strong id="markdown-name">Seleziona file indice.md</strong><span id="markdown-size">Markdown UTF-8 / max 20 MB</span><input id="markdown" name="markdown" type="file" accept=".md,text/markdown" required></label><div class="source-directory"><label for="source-files" class="field-label">Cartella con i file .txt numerati</label><label class="folder-picker" for="source-files"><i data-lucide="folder-open"></i><span id="source-files-name">Seleziona cartella .txt</span><input id="source-files" type="file" webkitdirectory directory multiple></label><label for="source-directory" class="field-label path-label">Oppure inserisci il percorso della cartella</label><input id="source-directory" name="source_directory" type="text" placeholder="C:\Percorso\alla\cartella"></div><div id="ai-file-selection" class="ai-file-selection" hidden><div class="ai-file-heading"><label class="check-option"><input id="ai-select-all" type="checkbox" checked><span>Seleziona tutti i file per AI</span></label><span id="ai-selection-count"></span></div><div id="ai-file-list" class="ai-file-list"></div></div></section>
+        <section><h2>02 <span>Directory di output</span></h2><div class="destination"><label for="output-directory" class="field-label">Cartella in cui salvare indice e note generate</label><input id="output-directory" name="output_directory" type="text" placeholder="C:\Percorso\destinazione" required></div><label class="check-option"><input id="overwrite" name="overwrite" type="checkbox" value="true"><span>Sovrascrivi i file esistenti</span></label></section>
+      </div>
+      <section class="settings"><h2>03 <span>Formato dei collegamenti</span></h2><div class="settings-grid"><p class="setting-copy">I riferimenti vengono trasformati in wikilink nativi di Obsidian.</p><label class="check-option extension-option"><input id="include-extension" name="include_extension" type="checkbox" value="true"><span>Includi .txt nel wikilink</span></label></div></section>
+      <section class="ai-settings"><div class="ai-heading"><h2>04 <span>Analisi AI locale</span></h2><span id="ollama-status" role="status">Verifica Ollama...</span></div><div class="ai-controls"><label class="check-option ai-toggle"><input id="ai-enabled" type="checkbox"><span>Attiva Analisi AI</span></label><div class="ai-model"><label for="model-select" class="field-label">Modello Ollama</label><select id="model-select" disabled><option value="">Caricamento modelli...</option></select></div></div><div id="progress-wrap" hidden><div class="progress-copy"><span id="progress-label">Preparazione analisi...</span><span id="progress-value">0%</span></div><progress id="analysis-progress" max="100" value="0"></progress></div></section>
+      <section class="preview-section"><div class="preview-heading"><h2>Anteprima</h2><span id="preview-count">Seleziona un file per visualizzare i collegamenti</span></div><div id="preview" aria-live="polite"><p class="empty-preview">L'anteprima dei primi 10 collegamenti apparirà qui.</p></div></section>
+      <div class="actionbar"><span id="output-info">Nessun file pronto</span><button id="generate" type="submit" disabled><i data-lucide="file-check-2"></i><span>Genera indice Obsidian</span></button></div>
+    </form>
+    <div id="error" role="alert" hidden></div>
+    <div id="warning" role="status" hidden></div>
+    <div id="success" role="status" hidden></div>
+  </main>
+  <footer>TxtToObsidian <span>/</span> File elaborati sul computer locale</footer>
+</body>
+</html>
