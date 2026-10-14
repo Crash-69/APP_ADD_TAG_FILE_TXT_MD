@@ -141,6 +141,26 @@ def resolve_txt_filenames(
     return filenames, missing_indexes
 
 
+def list_source_txt_filenames(
+    source_directory: Path | None,
+    source_filenames: list[str] | None,
+) -> list[str]:
+    if source_directory is not None:
+        filenames = [
+            path.name for path in source_directory.iterdir()
+            if path.is_file() and path.suffix.lower() == ".txt"
+        ]
+    elif source_filenames:
+        filenames = source_filenames
+    else:
+        raise ValueError("Seleziona la cartella con i file .txt o inserisci il suo percorso.")
+    if len({filename.casefold() for filename in filenames}) != len(filenames):
+        raise ValueError("La cartella contiene nomi file .txt duplicati o ambigui.")
+    if not filenames:
+        raise ValueError("La cartella selezionata non contiene file .txt.")
+    return sorted(filenames, key=str.casefold)
+
+
 def clean_entity_name(value: str) -> str:
     value = unicodedata.normalize("NFKC", value).strip().strip("#*`'\"“”‘’.,;:!?()[]{}")
     value = re.sub(r"^(?:dott(?:or|ore)?\.?|avv(?:ocato)?\.?|onorevole|prof(?:essore)?\.?)\s+", "", value, flags=re.IGNORECASE)
@@ -638,12 +658,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError(f"Analisi Ollama fallita per {filename}: {error}") from error
                 return self.reply(200, {"filename": filename, "tags": tags})
 
-            if "markdown" not in fields:
-                raise ValueError("Seleziona il file indice.md da elaborare.")
-            try:
-                source = fields["markdown"].decode("utf-8-sig")
-            except UnicodeDecodeError as error:
-                raise ValueError("Il file deve essere codificato in UTF-8.") from error
+            source = None
+            if "markdown" in fields:
+                try:
+                    source = fields["markdown"].decode("utf-8-sig")
+                except UnicodeDecodeError as error:
+                    raise ValueError("Il file deve essere codificato in UTF-8.") from error
             source_directory_text = str(fields.get("source_directory", "")).strip()
             source_directory = None
             if source_directory_text:
@@ -672,7 +692,11 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("La selezione cartella contiene nomi file non validi.")
                 if parsed_filenames:
                     source_filenames = parsed_filenames
-            filenames, missing_indexes = resolve_txt_filenames(source, source_directory, source_filenames)
+            if source is not None:
+                filenames, missing_indexes = resolve_txt_filenames(source, source_directory, source_filenames)
+            else:
+                filenames = list_source_txt_filenames(source_directory, source_filenames)
+                missing_indexes = []
             include_extension = fields.get("include_extension") == "true"
             if self.path == "/api/preview":
                 return self.reply(200, {"filenames": filenames, "count": len(filenames),
@@ -720,7 +744,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(ai_filenames, list) or any(
                 not isinstance(filename, str) or filename not in filenames for filename in ai_filenames
             ):
-                raise ValueError("La selezione AI contiene file non presenti nell'indice.")
+                raise ValueError("La selezione AI contiene file non presenti nell'elenco sorgente.")
             ai_filenames = list(dict.fromkeys(ai_filenames))
             job_id = str(fields.get("job_id", "")).strip().lower()
             cached_texts = {}

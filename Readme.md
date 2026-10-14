@@ -45,9 +45,11 @@ python C:\Progetto_AI\APP_TxtToObsidian\app.py --port 8035 --no-browser
 
 La dashboard del workspace include TxtToObsidian come applicazione `txt-to-obsidian` sulla porta `8035`.
 
+Dopo modifiche a `app.py`, arrestare e riavviare TxtToObsidian dalla dashboard, quindi ricaricare la pagina. Il solo aggiornamento del browser ricarica HTML e JavaScript, ma non il codice Python del server: una vecchia istanza puo continuare a richiedere l'indice anche con l'interfaccia aggiornata.
+
 ## Flusso di utilizzo
 
-1. Selezionare il file `indice.md`.
+1. Selezionare facoltativamente `indice.md`, oppure selezionare direttamente la cartella dei `.txt`: senza un indice caricato, l'elenco dei file appare anche lasciando attiva **Usa file indice, se selezionato**. Disattivare la casella solo per ignorare un indice gia caricato.
 2. Selezionare la cartella che contiene i `.txt` oppure inserire il percorso completo della cartella. Le righe numerate, per esempio `01. Titolo`, vengono associate ai file che iniziano con lo stesso numero, per esempio `01_Titolo.txt`.
 3. Controllare l'anteprima. Gli indici senza un file corrispondente sono segnalati e non producono un wikilink inesistente.
 4. Impostare la directory di output. Per default è la cartella dell'app; la directory deve già esistere.
@@ -55,6 +57,8 @@ La dashboard del workspace include TxtToObsidian come applicazione `txt-to-obsid
 6. Avviare la generazione.
 
 Il selettore di cartella del browser serve a individuare i `.txt`; in alternativa si può inserire il percorso Windows, che consente al processo Python di leggere direttamente i file.
+
+Senza indice, vengono elencati tutti i `.txt` direttamente presenti nella cartella, in ordine alfabetico e senza richiedere prefissi numerici. Le sottocartelle sono escluse. Il selettore e il percorso sono alternativi: l'ultima sorgente scelta sostituisce la precedente. Una cartella senza `.txt` viene segnalata e non consente la generazione. Per inserire i tag, attivare **Analisi AI locale** e selezionare nell'elenco i file da analizzare, come nella modalità con indice. L'indice generato include tutti i file elencati; le note con tag vengono create solo per quelli selezionati per AI.
 
 ## Modalità standard
 
@@ -121,6 +125,9 @@ Dalla root del workspace:
 
 ```powershell
 python -m unittest discover -s APP_TxtToObsidian -p test_app.py -v
+node --test APP_TxtToObsidian\test_app_js.cjs
 ```
 
-I test coprono estrazione dei riferimenti, risoluzione per numero, formattazione dei tag, note con testo completo e script CLI.
+I test coprono estrazione dei riferimenti, risoluzione per numero, caricamento senza indice da cartella o selettore, generazione delle note selezionate, formattazione dei tag, note con testo completo e script CLI.
+
+I test JavaScript richiedono Node.js 20 o successivo e verificano che la selezione della cartella senza indice mostri l'elenco anche con le impostazioni predefinite, oltre alla selezione AI e al mantenimento del filtro tramite indice.

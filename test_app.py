@@ -1,11 +1,148 @@
+import json
+import threading
 import unittest
+from http.client import HTTPConnection
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import app
 from app import AI_TEXT_OVERLAP_CHARS, MAX_AI_TEXT_CHARS, add_contextual_role_tags, analyze_text_with_ollama, build_obsidian_markdown, build_obsidian_note_markdown, extract_json_object, extract_txt_filenames, format_entity_tags, is_valid_ai_tag, keep_explicit_political_tags, remove_partial_person_tags, resolve_txt_filenames, split_ai_text
 from Prepara_File_Obsidian import crea_indice_obsidian
+
+
+class SourceFolderApiTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.source = self.root / "source"
+        self.output = self.root / "output"
+        self.source.mkdir()
+        self.output.mkdir()
+        (self.source / "B.txt").write_text("Testo completo B.\n", encoding="utf-8")
+        (self.source / "a.TXT").write_text("Testo completo A.\n", encoding="utf-8")
+        (self.source / "ignora.md").touch()
+        (self.source / "nested").mkdir()
+        (self.source / "nested" / "escluso.txt").touch()
+        (self.source / "directory.txt").mkdir()
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+    def post(self, endpoint, fields):
+        boundary = "txttoobsidian-test"
+        chunks = []
+        for name, value in fields.items():
+            disposition = f'Content-Disposition: form-data; name="{name}"'
+            if name == "markdown":
+                disposition += '; filename="indice.md"'
+            chunks.append(
+                f"--{boundary}\r\n{disposition}\r\n\r\n{value}\r\n".encode("utf-8")
+            )
+        chunks.append(f"--{boundary}--\r\n".encode())
+        connection = HTTPConnection("127.0.0.1", self.server.server_port, timeout=10)
+        try:
+            connection.request("POST", endpoint, body=b"".join(chunks), headers={
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "X-App-Token": app.TOKEN,
+            })
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def test_previews_directory_without_index_and_excludes_subfolders(self):
+        status, data = self.post("/api/preview", {"source_directory": str(self.source)})
+        self.assertEqual(status, 200)
+        self.assertEqual(data["filenames"], ["a.TXT", "B.txt"])
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["missing_indexes"], [])
+
+    def test_previews_browser_selection_without_index(self):
+        status, data = self.post("/api/preview", {
+            "source_filenames": json.dumps(["B.txt", "a.TXT"]),
+            "include_extension": "true",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(data["filenames"], ["a.TXT", "B.txt"])
+        self.assertTrue(data["include_extension"])
+
+    def test_reports_missing_empty_invalid_and_ambiguous_sources(self):
+        empty = self.root / "empty"
+        empty.mkdir()
+        cases = [
+            ({}, "Seleziona la cartella"),
+            ({"source_filenames": "[]"}, "Seleziona la cartella"),
+            ({"source_directory": str(empty)}, "non contiene file .txt"),
+            ({"source_directory": str(self.root / "missing")}, "non esiste"),
+            ({"source_filenames": '["../B.txt"]'}, "nomi file non validi"),
+            ({"source_filenames": '["B.txt", "b.TXT"]'}, "duplicati"),
+        ]
+        for fields, message in cases:
+            with self.subTest(fields=fields):
+                status, data = self.post("/api/preview", fields)
+                self.assertEqual(status, 400)
+                self.assertIn(message, data["error"])
+
+    def test_index_still_limits_files_and_empty_index_does_not_list_folder(self):
+        for markdown, expected in [("- B.txt", ["B.txt"]), ("# Nessun riferimento", [])]:
+            with self.subTest(markdown=markdown):
+                status, data = self.post("/api/preview", {
+                    "markdown": markdown, "source_directory": str(self.source),
+                })
+                self.assertEqual(status, 200)
+                self.assertEqual(data["filenames"], expected)
+
+    def test_generates_without_index_and_preserves_overwrite_protection(self):
+        fields = {"source_directory": str(self.source), "output_directory": str(self.output)}
+        status, data = self.post("/api/generate", fields)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["created_notes"], [])
+        target = self.output / "lista_obsidian.md"
+        self.assertEqual(target.read_text(encoding="utf-8"), "# Indice Obsidian\n\n- [[a]]\n- [[B]]\n")
+        status, data = self.post("/api/generate", fields)
+        self.assertEqual(status, 400)
+        self.assertIn("Esistono già file", data["error"])
+
+    def test_without_index_creates_tagged_note_only_for_selected_file(self):
+        for use_browser in (False, True):
+            with self.subTest(use_browser=use_browser):
+                job_id = ("b" if use_browser else "a") * 32
+                self.addCleanup(app._clear_ai_text_cache, job_id)
+                source_fields = (
+                    {"source_filenames": '["B.txt", "a.TXT"]'} if use_browser
+                    else {"source_directory": str(self.source)}
+                )
+                analysis_fields = {"filename": "B.txt", "model": "test-model", "job_id": job_id}
+                if use_browser:
+                    analysis_fields["file_text"] = "Testo completo B.\n"
+                else:
+                    analysis_fields.update(source_fields)
+                with patch("app.analyze_text_with_ollama", return_value=["#persona/Mario_Rossi"]):
+                    status, data = self.post("/api/analyze", analysis_fields)
+                self.assertEqual(status, 200)
+                status, data = self.post("/api/generate", {
+                    **source_fields, "output_directory": str(self.output), "overwrite": "true",
+                    "job_id": job_id, "ai_filenames": '["B.txt"]',
+                    "tags_by_filename": '{"B.txt": ["#persona/Mario_Rossi"]}',
+                })
+                self.assertEqual(status, 200)
+                self.assertEqual(data["created_notes"], ["B.md"])
+                note = (self.output / "B.md").read_text(encoding="utf-8")
+                self.assertIn("Testo completo B.\n", note)
+                self.assertIn("Tags: #persona/Mario_Rossi", note)
+                self.assertFalse((self.output / "a.md").exists())
+                self.assertEqual((self.source / "B.txt").read_text(encoding="utf-8"), "Testo completo B.\n")
 
 
 class ObsidianIndexTests(unittest.TestCase):

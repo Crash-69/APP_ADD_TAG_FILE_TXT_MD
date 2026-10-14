@@ -23,7 +23,12 @@ function showWarning(message) {
   get('error').hidden = true;
 }
 function updateButton() {
-  get('generate').disabled = previewBusy || aiRunBusy || !get('markdown').files.length || !previewCount || !get('output-directory').value.trim() || (get('ai-enabled').checked && (!get('model-select').value || !getSelectedAiFilenames().length));
+  get('generate').disabled = previewBusy || aiRunBusy || !previewCount || !get('output-directory').value.trim() || (get('ai-enabled').checked && (!get('model-select').value || !getSelectedAiFilenames().length));
+}
+function getSourceTextFiles() {
+  return Array.from(get('source-files').files).filter(file =>
+    file.name.toLowerCase().endsWith('.txt') &&
+    (!file.webkitRelativePath || file.webkitRelativePath.split('/').length === 2));
 }
 function getSelectedAiFilenames() {
   if (selectedAiFilenames === null) return [...resolvedFilenames];
@@ -97,11 +102,11 @@ async function post(path, form) {
 }
 function makeForm() {
   const form = new FormData();
-  form.append('markdown', get('markdown').files[0]);
+  if (get('use-index').checked && get('markdown').files[0]) {
+    form.append('markdown', get('markdown').files[0]);
+  }
   form.append('source_directory', get('source-directory').value.trim());
-  const sourceNames = Array.from(get('source-files').files)
-    .filter(file => file.name.toLowerCase().endsWith('.txt'))
-    .map(file => file.name);
+  const sourceNames = getSourceTextFiles().map(file => file.name);
   form.append('source_filenames', JSON.stringify(sourceNames));
   form.append('include_extension', String(get('include-extension').checked));
   return form;
@@ -143,8 +148,7 @@ async function loadOllamaModels() {
 async function analyzeSelectedFiles(jobId, filesToAnalyze) {
   const model = get('model-select').value;
   const sourceDirectory = get('source-directory').value.trim();
-  const selectedFiles = Array.from(get('source-files').files);
-  const selectedTextFiles = selectedFiles.filter(file => file.name.toLowerCase().endsWith('.txt'));
+  const selectedTextFiles = getSourceTextFiles();
   const selectedByName = new Map(selectedTextFiles.map(file => [file.name, file]));
   const failedFiles = [];
   tagsByFilename = {};
@@ -187,19 +191,23 @@ async function generateIndex(jobId, aiFilenames) {
   return post('/api/generate', form);
 }
 async function refreshPreview() {
-  const file = get('markdown').files[0];
+  const useIndex = get('use-index').checked;
+  const file = useIndex ? get('markdown').files[0] : null;
+  const hasSource = Boolean(file || get('source-directory').value.trim() || get('source-files').files.length);
   const revision = ++requestRevision;
+  previewBusy = false;
   previewCount = 0;
   unresolvedIndexes = [];
   resolvedFilenames = [];
   tagsByFilename = {};
-  get('preview-count').textContent = file ? 'Lettura del file...' : 'Seleziona un file per visualizzare i collegamenti';
+  get('preview-count').textContent = hasSource ? 'Lettura delle sorgenti...' : 'Seleziona un indice o una cartella per visualizzare i collegamenti';
   get('output-info').textContent = 'Nessun file pronto';
   get('success').hidden = true;
   get('warning').hidden = true;
   get('error').hidden = true;
   get('preview').replaceChildren();
-  if (!file) {
+  updateAISelection();
+  if (!hasSource) {
     const empty = document.createElement('p');
     empty.className = 'empty-preview';
     empty.textContent = 'L\'anteprima dei primi 10 collegamenti apparirà qui.';
@@ -207,10 +215,12 @@ async function refreshPreview() {
     updateButton();
     return;
   }
-  get('markdown-name').textContent = file.name;
-  get('markdown-size').textContent = `${(file.size / 1024).toFixed(1)} KB`;
-  get('markdown-zone').classList.add('selected');
-  if (file.size > 20 * 1024 * 1024) {
+  if (file) {
+    get('markdown-name').textContent = file.name;
+    get('markdown-size').textContent = `${(file.size / 1024).toFixed(1)} KB`;
+    get('markdown-zone').classList.add('selected');
+  }
+  if (file && file.size > 20 * 1024 * 1024) {
     showError('Il file supera il limite di 20 MB.');
     get('preview-count').textContent = 'File troppo grande';
     updateButton();
@@ -244,10 +254,25 @@ async function refreshPreview() {
   }
 }
 get('markdown').addEventListener('change', () => { selectedAiFilenames = null; refreshPreview(); });
-get('source-directory').addEventListener('change', () => { selectedAiFilenames = null; refreshPreview(); });
+get('use-index').addEventListener('change', () => {
+  const useIndex = get('use-index').checked;
+  get('markdown-zone').hidden = !useIndex;
+  get('markdown').disabled = !useIndex;
+  selectedAiFilenames = null;
+  refreshPreview();
+});
+get('source-directory').addEventListener('change', () => {
+  selectedAiFilenames = null;
+  if (get('source-directory').value.trim()) {
+    get('source-files').value = '';
+    get('source-files-name').textContent = 'Seleziona cartella .txt';
+  }
+  refreshPreview();
+});
 get('source-files').addEventListener('change', () => {
   selectedAiFilenames = null;
-  const count = Array.from(get('source-files').files).filter(file => file.name.toLowerCase().endsWith('.txt')).length;
+  if (get('source-files').files.length) get('source-directory').value = '';
+  const count = getSourceTextFiles().length;
   get('source-files-name').textContent = count ? `${count} file .txt selezionati` : 'Seleziona cartella .txt';
   refreshPreview();
 });
@@ -317,6 +342,7 @@ zone.addEventListener('drop', event => {
   const transfer = new DataTransfer();
   transfer.items.add(file);
   get('markdown').files = transfer.files;
+  selectedAiFilenames = null;
   refreshPreview();
 });
 async function initialize() {
